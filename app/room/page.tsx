@@ -144,15 +144,6 @@ export default function RoomPage() {
             {isLoading ? "Joining..." : "Join Room"}
           </button>
 
-          {/* User Info */}
-          <div className="mt-6 pt-6 border-t border-gray-200">
-            <div className="text-center text-sm text-gray-500">
-              <p>Coins: {user.coins}</p>
-              <p className="mt-1">
-                Member since: {new Date(user.created_at).toLocaleDateString()}
-              </p>
-            </div>
-          </div>
         </div>
       </div>
     </div>
