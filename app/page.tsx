@@ -4,6 +4,11 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { socket } from "@/lib/socketClient";
+import {
+  validateUsername,
+  validateEmail,
+  validatePassword,
+} from "@/lib/validation";
 
 export default function Home() {
   const [isLogin, setIsLogin] = useState(true);
@@ -30,6 +35,30 @@ export default function Home() {
 
     setLoading(true);
     setError("");
+
+    // Frontend validation using Yup schemas
+    const usernameValidation = validateUsername(formData.username);
+    if (!usernameValidation.success) {
+      setError(usernameValidation.error || "Invalid username");
+      setLoading(false);
+      return;
+    }
+
+    if (!isLogin) {
+      const emailValidation = validateEmail(formData.email);
+      if (!emailValidation.success) {
+        setError(emailValidation.error || "Invalid email");
+        setLoading(false);
+        return;
+      }
+    }
+
+    const passwordValidation = validatePassword(formData.password);
+    if (!passwordValidation.success) {
+      setError(passwordValidation.error || "Invalid password");
+      setLoading(false);
+      return;
+    }
 
     if (isLogin) {
       // Login flow
