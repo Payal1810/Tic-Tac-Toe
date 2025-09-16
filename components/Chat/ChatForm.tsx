@@ -34,7 +34,6 @@ const ChatForm = ({
           className="flex-1 px-4 py-2 rounded-lg border focus:outline-none"
           onChange={(e) => setMessage(e.target.value)}
           placeholder="Type your message here..."
-          maxLength={500}
         />
         <button
           type="submit"

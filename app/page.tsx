@@ -145,43 +145,35 @@ export default function Home() {
             <div>
               <input
                 type="text"
-                required
                 className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                 placeholder="Username"
                 value={formData.username}
                 onChange={handleInputChange("username")}
-                disabled={loading}
-                minLength={3}
-                maxLength={20}
+                disabled={loading}            
               />
             </div>
 
             {!isLogin && (
               <div>
                 <input
-                  type="email"
-                  required
+                  type="email"               
                   className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                   placeholder="Email address"
                   value={formData.email}
                   onChange={handleInputChange("email")}
-                  disabled={loading}
-                  maxLength={100}
+                  disabled={loading}              
                 />
               </div>
             )}
 
             <div>
               <input
-                type="password"
-                required
+                type="password"             
                 className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                 placeholder="Password"
                 value={formData.password}
                 onChange={handleInputChange("password")}
-                disabled={loading}
-                minLength={6}
-                maxLength={128}
+                disabled={loading}            
               />
             </div>
           </div>
