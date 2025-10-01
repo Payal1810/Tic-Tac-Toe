@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useMemo } from "react";
 
 type Player = "X" | "O" | null;
 type Board = Player[];
@@ -13,115 +13,124 @@ interface GameBoardProps {
 export default function GameBoard({ roomId, currentUser }: GameBoardProps) {
   const [board, setBoard] = useState<Board>(Array(9).fill(null));
   const [currentPlayer, setCurrentPlayer] = useState<"X" | "O">("X");
-  const [winner, setWinner] = useState<Player>(null);
-  const [gameStatus, setGameStatus] = useState<string>(
-    "Waiting for players..."
-  );
 
-  // Check for winner using mathematical patterns
-  const checkWinner = (squares: Board): Player => {
-    const size = 3; // 3x3 grid
+  // Note: currentUser will be used for multiplayer features in the future
+  console.log("Game started in room:", roomId, "by user:", currentUser);
 
-    // Check rows: positions (i*3, i*3+1, i*3+2) for i = 0,1,2
-    for (let row = 0; row < size; row++) {
-      const startIndex = row * size;
-      if (
-        squares[startIndex] &&
-        squares[startIndex] === squares[startIndex + 1] &&
-        squares[startIndex] === squares[startIndex + 2]
-      ) {
-        return squares[startIndex];
+  // Check for winner using mathematical patterns (memoized to avoid recalculation)
+  const checkWinner = useMemo(() => {
+    return (squares: Board): Player => {
+      const size = 3; // 3x3 grid
+
+      // Check rows: positions (i*3, i*3+1, i*3+2) for i = 0,1,2
+      for (let row = 0; row < size; row++) {
+        const startIndex = row * size;
+        if (
+          squares[startIndex] &&
+          squares[startIndex] === squares[startIndex + 1] &&
+          squares[startIndex] === squares[startIndex + 2]
+        ) {
+          return squares[startIndex];
+        }
       }
-    }
 
-    // Check columns: positions (j, j+3, j+6) for j = 0,1,2
-    for (let col = 0; col < size; col++) {
-      if (
-        squares[col] &&
-        squares[col] === squares[col + size] &&
-        squares[col] === squares[col + 2 * size]
-      ) {
-        return squares[col];
+      // Check columns: positions (j, j+3, j+6) for j = 0,1,2
+      for (let col = 0; col < size; col++) {
+        if (
+          squares[col] &&
+          squares[col] === squares[col + size] &&
+          squares[col] === squares[col + 2 * size]
+        ) {
+          return squares[col];
+        }
       }
+
+      // Check main diagonal: positions (0, 4, 8) - formula: i*(size+1) for i = 0,1,2
+      if (
+        squares[0] &&
+        squares[0] === squares[size + 1] &&
+        squares[0] === squares[2 * (size + 1)]
+      ) {
+        return squares[0];
+      }
+
+      // Check anti-diagonal: positions (2, 4, 6) - formula: (i+1)*(size-1) for i = 0,1,2
+      if (
+        squares[size - 1] &&
+        squares[size - 1] === squares[2 * (size - 1)] &&
+        squares[size - 1] === squares[3 * (size - 1)]
+      ) {
+        return squares[size - 1];
+      }
+
+      return null;
+    };
+  }, []);
+
+  // Derive game state using useMemo to avoid duplicate calculations
+  const gameState = useMemo(() => {
+    const winner = checkWinner(board);
+    const isDraw = !winner && board.every((square) => square !== null);
+    const isGameOver = winner || isDraw;
+
+    let status: string;
+    if (winner) {
+      status = `Player ${winner} wins!`;
+    } else if (isDraw) {
+      status = "It's a draw!";
+    } else {
+      status = `Player ${currentPlayer}'s turn`;
     }
 
-    // Check main diagonal: positions (0, 4, 8) - formula: i*(size+1) for i = 0,1,2
-    if (
-      squares[0] &&
-      squares[0] === squares[size + 1] &&
-      squares[0] === squares[2 * (size + 1)]
-    ) {
-      return squares[0];
-    }
-
-    // Check anti-diagonal: positions (2, 4, 6) - formula: (i+1)*(size-1) for i = 0,1,2
-    if (
-      squares[size - 1] &&
-      squares[size - 1] === squares[2 * (size - 1)] &&
-      squares[size - 1] === squares[3 * (size - 1)]
-    ) {
-      return squares[size - 1];
-    }
-
-    return null;
-  };
-
-  // Check for draw
-  const isDraw = (squares: Board): boolean => {
-    return squares.every((square) => square !== null) && !checkWinner(squares);
-  };
+    return {
+      winner,
+      isDraw,
+      isGameOver,
+      status,
+    };
+  }, [board, currentPlayer, checkWinner]);
 
   // Handle square click
   const handleSquareClick = (index: number) => {
-    if (board[index] || winner) return;
+    // Prevent moves if game is over or square is occupied
+    if (board[index] || gameState.isGameOver) return;
 
     const newBoard = [...board];
     newBoard[index] = currentPlayer;
     setBoard(newBoard);
 
-    const gameWinner = checkWinner(newBoard);
-    if (gameWinner) {
-      setWinner(gameWinner);
-      setGameStatus(`Player ${gameWinner} wins!`);
-    } else if (isDraw(newBoard)) {
-      setGameStatus("It's a draw!");
-    } else {
-      const nextPlayer = currentPlayer === "X" ? "O" : "X";
-      setCurrentPlayer(nextPlayer);
-      setGameStatus(`Player ${nextPlayer}'s turn`);
-    }
+    // Only toggle player if game is not over after this move
+    // The gameState will be recalculated automatically via useMemo
+    const nextPlayer = currentPlayer === "X" ? "O" : "X";
+    setCurrentPlayer(nextPlayer);
   };
 
   // Reset game
   const resetGame = () => {
     setBoard(Array(9).fill(null));
     setCurrentPlayer("X");
-    setWinner(null);
-    setGameStatus("Player X's turn");
   };
 
-  // Initialize game status
-  useEffect(() => {
-    if (!winner && board.every((square) => square === null)) {
-      setGameStatus("Player X's turn");
-    }
-  }, []);
-
   // Render square
-  const renderSquare = (index: number) => (
-    <button
-      key={index}
-      className={`w-16 h-16 sm:w-20 sm:h-20 border-2 border-gray-400 text-2xl sm:text-3xl font-bold
-        hover:bg-gray-100 transition-colors duration-200
-        ${board[index] === "X" ? "text-blue-600" : "text-red-600"}
-        ${winner ? "cursor-not-allowed" : "cursor-pointer"}
-      `}
-      onClick={() => handleSquareClick(index)}
-      disabled={!!winner || !!board[index]}
-    >
-      {board[index]}
-    </button>
-  );
+  const renderSquare = (index: number) => {
+    const isDisabled = gameState.isGameOver || board[index] !== null;
+
+    return (
+      <button
+        key={index}
+        className={`w-16 h-16 sm:w-20 sm:h-20 border-2 border-gray-400 text-2xl sm:text-3xl font-bold
+          hover:bg-gray-100 transition-colors duration-200
+          ${board[index] === "X" ? "text-blue-600" : "text-red-600"}
+          ${gameState.isGameOver ? "cursor-not-allowed" : "cursor-pointer"}
+        `}
+        onClick={() => handleSquareClick(index)}
+        disabled={Boolean(isDisabled)}
+        type="button"
+      >
+        {board[index]}
+      </button>
+    );
+  };
 
   return (
     <div className="flex flex-col items-center p-4 sm:p-6 bg-white rounded-lg shadow-lg max-w-sm mx-auto">
@@ -133,10 +142,10 @@ export default function GameBoard({ roomId, currentUser }: GameBoardProps) {
       <div className="mb-4 text-center">
         <p
           className={`text-base sm:text-lg font-semibold ${
-            winner ? "text-green-600" : "text-gray-700"
+            gameState.winner ? "text-green-600" : "text-gray-700"
           }`}
         >
-          {gameStatus}
+          {gameState.status}
         </p>
         <p className="text-xs sm:text-sm text-gray-500 mt-1">Room: {roomId}</p>
       </div>
@@ -158,12 +167,12 @@ export default function GameBoard({ roomId, currentUser }: GameBoardProps) {
           New Game
         </button>
 
-        {winner && (
+        {gameState.isGameOver && (
           <div
             className="flex items-center justify-center px-4 py-2 bg-green-100 text-green-800
             rounded-lg border border-green-300 text-sm sm:text-base"
           >
-            :tada: Game Over!
+            Game Over!
           </div>
         )}
       </div>
