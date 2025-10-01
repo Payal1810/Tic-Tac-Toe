@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import ChatForm from "@/components/Chat/ChatForm";
 import ChatMessage from "@/components/Chat/ChatMessage";
+import GameBoard from "@/components/GameBoard";
 import { useAuth } from "@/hooks/useAuth";
 import { socket } from "@/lib/socketClient";
 
@@ -164,9 +165,9 @@ export default function RoomPage() {
   }
 
   return (
-    <div className="flex flex-col mt-8 justify-center w-full max-w-4xl mx-auto p-4">
+    <div className="flex flex-col min-h-screen bg-gray-100">
       {/* Header */}
-      <div className="flex justify-between items-center mb-4 p-4 bg-white rounded-lg shadow">
+      <div className="flex justify-between items-center mb-4 p-4 bg-white shadow">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Room: {roomId}</h1>
           <p className="text-sm text-gray-600">
@@ -183,7 +184,7 @@ export default function RoomPage() {
 
       {/* Connection Error Alert */}
       {connectionError && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
+        <div className="mx-4 mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
           <div className="flex">
             <div className="ml-3">
               <h3 className="text-sm font-medium text-red-800">
@@ -203,26 +204,37 @@ export default function RoomPage() {
         </div>
       )}
 
-      {/* Chat Area */}
-      <div className="h-[500px] overflow-y-auto p-4 mb-4 border-2 rounded-lg bg-gray-50">
-        {messages.length === 0 ? (
-          <div className="text-center text-gray-500 mt-10">
-            <p>No messages yet. Start the conversation!</p>
-          </div>
-        ) : (
-          messages.map((msg, index) => (
-            <ChatMessage
-              key={index}
-              sender={msg.sender}
-              message={msg.message}
-              isOwnMessage={msg.sender === user.username}
-            />
-          ))
-        )}
-      </div>
+      {/* Main Content Area - Game Board Left, Chat Right */}
+      <div className="flex-1 flex flex-col lg:flex-row gap-4 p-4">
+        {/* Left Side - Game Board */}
+        <div className="flex-1 flex justify-center items-start">
+          <GameBoard roomId={roomId} currentUser={user.username} />
+        </div>
 
-      {/* Chat Input */}
-      <ChatForm onSendMessage={handleSendMessage} />
+        {/* Right Side - Chat */}
+        <div className="flex-1 flex flex-col lg:max-w-md">
+          {/* Chat Area */}
+          <div className="flex-1 h-[400px] lg:h-[600px] overflow-y-auto p-4 mb-4 border-2 rounded-lg bg-white shadow">
+            {messages.length === 0 ? (
+              <div className="text-center text-gray-500 mt-10">
+                <p>No messages yet. Start the conversation!</p>
+              </div>
+            ) : (
+              messages.map((msg, index) => (
+                <ChatMessage
+                  key={index}
+                  sender={msg.sender}
+                  message={msg.message}
+                  isOwnMessage={msg.sender === user.username}
+                />
+              ))
+            )}
+          </div>
+
+          {/* Chat Input */}
+          <ChatForm onSendMessage={handleSendMessage} />
+        </div>
+      </div>
     </div>
   );
 }
