@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { validateRoomCode } from "@/lib/validation";
+import { socket } from "@/lib/socketClient";
 
 export default function RoomPage() {
   const [roomCode, setRoomCode] = useState("");
@@ -33,13 +34,68 @@ export default function RoomPage() {
       return;
     }
 
+    console.log("[JoinPage] Join clicked", { input: roomCode });
     setIsLoading(true);
+    console.log("[JoinPage] isLoading=true");
     setError("");
 
+    const code = roomCode.trim();
+
+    // Authenticate socket and attempt to join; redirect only when 2 players present
     try {
-      // Navigate to room
-      router.push(`/room/${roomCode.trim()}`);
-    } catch {
+      if (user) {
+        console.log("[JoinPage] emit authenticate-user", {
+          user: { id: user.id, username: user.username },
+        });
+        socket.emit("authenticate-user", { user });
+      }
+
+      const onRoomReady = (payload: { room: { id: number; code: string } }) => {
+        console.log("[JoinPage] roomReady", payload);
+        cleanup();
+        router.push(`/room/${payload.room.code}`);
+      };
+
+      const onRoomError = (err: { code: string; message: string }) => {
+        console.warn("[JoinPage] roomError", err);
+        setError(err.message || "Failed to join room");
+        cleanup(true);
+      };
+
+      const cleanup = (stopLoading = false) => {
+        console.log("[JoinPage] cleanup", { stopLoading });
+        socket.off("roomReady", onRoomReady);
+        socket.off("roomError", onRoomError);
+        if (stopLoading) setIsLoading(false);
+      };
+
+      socket.on("roomReady", onRoomReady);
+      socket.on("roomError", onRoomError);
+
+      // Wait for auth acknowledgement before joining to avoid race conditions
+      const onAuthOk = () => {
+        console.log("[JoinPage] auth-ok received, emitting joinRoom", { code });
+        socket.off("auth-ok", onAuthOk);
+        socket.emit("joinRoom", { code });
+      };
+      socket.on("auth-ok", onAuthOk);
+      // If auth-ok never arrives (e.g., already authed), still attempt join after short delay
+      setTimeout(() => {
+        console.log("[JoinPage] auth-ok fallback -> emit joinRoom", { code });
+        socket.off("auth-ok", onAuthOk);
+        socket.emit("joinRoom", { code });
+      }, 200);
+
+      // Safety timeout
+      setTimeout(() => {
+        console.warn("[JoinPage] join timeout fired");
+        if (isLoading) {
+          cleanup(true);
+          setError("Join timed out. Try again.");
+        }
+      }, 10000);
+    } catch (e) {
+      console.error("[JoinPage] exception in handleJoinRoom", e);
       setError("Failed to join room. Please try again.");
       setIsLoading(false);
     }
@@ -143,7 +199,6 @@ export default function RoomPage() {
           >
             {isLoading ? "Joining..." : "Join Room"}
           </button>
-
         </div>
       </div>
     </div>

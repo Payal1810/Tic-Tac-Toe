@@ -165,37 +165,37 @@ export default function RoomPage() {
   }
 
   return (
-    <div className="flex flex-col min-h-screen bg-gray-100">
+    <div className="flex flex-col min-h-screen bg-[#0B0715] from-[#0B0715] to-[#110A24] bg-gradient-to-b">
       {/* Header */}
-      <div className="flex justify-between items-center mb-4 p-4 bg-white shadow">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Room: {roomId}</h1>
-          <p className="text-sm text-gray-600">
-            Welcome, {user.username}! (Coins: {user.coins})
-          </p>
+      <div className="flex items-center justify-between p-4 md:p-6">
+        <div className="space-y-1">
+          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-widest text-center mb-2 text-purple-300 drop-shadow-[0_0_14px_rgba(168,85,247,0.6)]">
+            TIC TAC TOE
+          </h1>
         </div>
-        <button
-          onClick={handleLogout}
-          className="px-4 py-2 text-sm text-red-600 hover:text-red-500 border border-red-300 rounded-md hover:bg-red-50 transition-colors"
-        >
-          Logout
-        </button>
+        <div className="flex items-center gap-4">
+
+          <button
+            onClick={handleLogout}
+            className="px-4 py-2 text-sm rounded-md border border-fuchsia-500/40 text-fuchsia-300 hover:text-white bg-fuchsia-500/10 hover:bg-fuchsia-500/20 transition-colors shadow-[0_0_10px_rgba(217,70,239,0.35)]"
+          >
+            Logout
+          </button>
+        </div>
       </div>
 
       {/* Connection Error Alert */}
       {connectionError && (
-        <div className="mx-4 mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
+        <div className="mx-4 md:mx-6 mb-4 p-4 rounded-lg border border-red-500/40 bg-red-500/10 text-red-200">
           <div className="flex">
-            <div className="ml-3">
-              <h3 className="text-sm font-medium text-red-800">
-                Connection Error
-              </h3>
-              <div className="mt-2 text-sm text-red-700">{connectionError}</div>
+            <div className="ml-1">
+              <h3 className="text-sm font-semibold">Connection Error</h3>
+              <div className="mt-1 text-sm">{connectionError}</div>
             </div>
             <div className="ml-auto pl-3">
               <button
                 onClick={() => setConnectionError(null)}
-                className="text-red-400 hover:text-red-600"
+                className="text-red-300 hover:text-red-200"
               >
                 ×
               </button>
@@ -205,7 +205,7 @@ export default function RoomPage() {
       )}
 
       {/* Main Content Area - Game Board Left, Chat Right */}
-      <div className="flex-1 flex flex-col lg:flex-row gap-4 p-4">
+      <div className="flex-1 flex flex-col lg:flex-row gap-6 p-4 md:p-6">
         {/* Left Side - Game Board */}
         <div className="flex-1 flex justify-center items-start">
           <GameBoard roomId={roomId} currentUser={user.username} />
@@ -214,9 +214,9 @@ export default function RoomPage() {
         {/* Right Side - Chat */}
         <div className="flex-1 flex flex-col lg:max-w-md">
           {/* Chat Area */}
-          <div className="flex-1 h-[400px] lg:h-[600px] overflow-y-auto p-4 mb-4 border-2 rounded-lg bg-white shadow">
+          <div className="flex-1 h-[420px] lg:h-[620px] overflow-y-auto p-4 mb-4 rounded-2xl border border-purple-500/40 bg-[#0F0A23]/60 backdrop-blur-sm shadow-[0_0_20px_rgba(168,85,247,0.25)]">
             {messages.length === 0 ? (
-              <div className="text-center text-gray-500 mt-10">
+              <div className="text-center text-purple-200/60 mt-10">
                 <p>No messages yet. Start the conversation!</p>
               </div>
             ) : (

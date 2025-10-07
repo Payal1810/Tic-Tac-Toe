@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useEffect } from "react";
+import { socket } from "@/lib/socketClient";
 
 type Player = "X" | "O" | null;
 type Board = Player[];
@@ -12,116 +13,170 @@ interface GameBoardProps {
 
 export default function GameBoard({ roomId, currentUser }: GameBoardProps) {
   const [board, setBoard] = useState<Board>(Array(9).fill(null));
-  const [currentPlayer, setCurrentPlayer] = useState<"X" | "O">("X");
+  const [nextTurn, setNextTurn] = useState<"X" | "O">("X");
+  const [isGameOver, setIsGameOver] = useState(false);
+  const [winnerSymbol, setWinnerSymbol] = useState<"X" | "O" | null>(null);
+  const [winnerName, setWinnerName] = useState<string | null>(null);
+  const [isDraw, setIsDraw] = useState(false);
+  const [isGameActive, setIsGameActive] = useState(false);
+  const [mySymbol, setMySymbol] = useState<"X" | "O" | null>(null);
 
   // Note: currentUser will be used for multiplayer features in the future
-  console.log("Game started in room:", roomId, "by user:", currentUser);
+  console.log("Game room:", roomId, "user:", currentUser);
 
-  // Check for winner using mathematical patterns (memoized to avoid recalculation)
-  const checkWinner = useMemo(() => {
-    return (squares: Board): Player => {
-      const size = 3; // 3x3 grid
-
-      // Check rows: positions (i*3, i*3+1, i*3+2) for i = 0,1,2
-      for (let row = 0; row < size; row++) {
-        const startIndex = row * size;
-        if (
-          squares[startIndex] &&
-          squares[startIndex] === squares[startIndex + 1] &&
-          squares[startIndex] === squares[startIndex + 2]
-        ) {
-          return squares[startIndex];
-        }
+  // Subscribe to server events
+  useEffect(() => {
+    // Authenticate socket with stored user (required by server)
+    try {
+      const raw = localStorage.getItem("user");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        console.log("[GameBoard] emit authenticate-user", {
+          user: { id: parsed?.id, username: parsed?.username },
+        });
+        socket.emit("authenticate-user", { user: parsed });
       }
-
-      // Check columns: positions (j, j+3, j+6) for j = 0,1,2
-      for (let col = 0; col < size; col++) {
-        if (
-          squares[col] &&
-          squares[col] === squares[col + size] &&
-          squares[col] === squares[col + 2 * size]
-        ) {
-          return squares[col];
-        }
-      }
-
-      // Check main diagonal: positions (0, 4, 8) - formula: i*(size+1) for i = 0,1,2
-      if (
-        squares[0] &&
-        squares[0] === squares[size + 1] &&
-        squares[0] === squares[2 * (size + 1)]
-      ) {
-        return squares[0];
-      }
-
-      // Check anti-diagonal: positions (2, 4, 6) - formula: (i+1)*(size-1) for i = 0,1,2
-      if (
-        squares[size - 1] &&
-        squares[size - 1] === squares[2 * (size - 1)] &&
-        squares[size - 1] === squares[3 * (size - 1)]
-      ) {
-        return squares[size - 1];
-      }
-
-      return null;
-    };
-  }, []);
-
-  // Derive game state using useMemo to avoid duplicate calculations
-  const gameState = useMemo(() => {
-    const winner = checkWinner(board);
-    const isDraw = !winner && board.every((square) => square !== null);
-    const isGameOver = winner || isDraw;
-
-    let status: string;
-    if (winner) {
-      status = `Player ${winner} wins!`;
-    } else if (isDraw) {
-      status = "It's a draw!";
-    } else {
-      status = `Player ${currentPlayer}'s turn`;
+    } catch {
+      // ignore auth hydrate failures
     }
 
-    return {
-      winner,
-      isDraw,
-      isGameOver,
-      status,
+    // Ensure we are in the room
+    console.log("[GameBoard] emit joinRoom", { code: roomId });
+    socket.emit("joinRoom", { code: roomId });
+
+    const handleStarted = (payload: {
+      game: { id: number; roomId: number; started_at: string };
+      board: Board;
+      nextTurn: "X" | "O";
+      players: Array<{ id: number; username: string; symbol: "X" | "O" }>;
+    }) => {
+      console.log("[GameBoard] gameStarted", payload);
+      setBoard(payload.board);
+      setNextTurn(payload.nextTurn);
+      setIsGameOver(false);
+      setWinnerSymbol(null);
+      setWinnerName(null);
+      setIsDraw(false);
+      setIsGameActive(true);
+      try {
+        const raw = localStorage.getItem("user");
+        const me = raw ? JSON.parse(raw) : null;
+        const mine = payload.players.find((p) =>
+          me?.id ? p.id === me.id : p.username === me?.username
+        );
+        setMySymbol(mine?.symbol ?? null);
+        // winner name comes from server; no need to store my own name here
+      } catch {
+        // ignore parse errors
+      }
     };
-  }, [board, currentPlayer, checkWinner]);
 
-  // Handle square click
+    const handleUpdate = (payload: { board: Board; nextTurn: "X" | "O" }) => {
+      console.log("[GameBoard] gameUpdate", payload);
+      setBoard(payload.board);
+      setNextTurn(payload.nextTurn);
+      setIsGameActive(true);
+    };
+
+    const handleOver = (payload: {
+      result: "DRAW" | "COMPLETED" | "CANCELLED";
+      winner?: { id: number; username: string; symbol: "X" | "O" };
+    }) => {
+      console.log("[GameBoard] gameOver", payload);
+      setIsGameOver(true);
+      if (payload.result === "DRAW") {
+        setIsDraw(true);
+        setWinnerSymbol(null);
+        setWinnerName(null);
+      } else if (payload.winner) {
+        setWinnerSymbol(payload.winner.symbol);
+        setWinnerName(payload.winner.username);
+        setIsDraw(false);
+      }
+      setIsGameActive(false);
+    };
+
+    const handleRestarted = (payload: {
+      game: { id: number; roomId: number };
+      board: Board;
+      nextTurn: "X" | "O";
+    }) => {
+      console.log("[GameBoard] gameRestarted", payload);
+      setBoard(payload.board);
+      setNextTurn(payload.nextTurn);
+      setIsGameOver(false);
+      setWinnerSymbol(null);
+      setWinnerName(null);
+      setIsDraw(false);
+      setIsGameActive(true);
+    };
+
+    const handleInvalid = (payload?: { reason?: string }) => {
+      console.warn("[GameBoard] invalidMove", payload);
+      // Optionally, show a toast or temporary UI message
+      // For now, no-op to keep UI simple
+    };
+
+    socket.on("gameStarted", handleStarted);
+    socket.on("gameUpdate", handleUpdate);
+    socket.on("gameOver", handleOver);
+    socket.on("gameRestarted", handleRestarted);
+    socket.on("invalidMove", handleInvalid);
+
+    return () => {
+      socket.off("gameStarted", handleStarted);
+      socket.off("gameUpdate", handleUpdate);
+      socket.off("gameOver", handleOver);
+      socket.off("gameRestarted", handleRestarted);
+      socket.off("invalidMove", handleInvalid);
+    };
+  }, [roomId]);
+
+  // Handle square click: emit intent; server updates arrive via events
   const handleSquareClick = (index: number) => {
-    // Prevent moves if game is over or square is occupied
-    if (board[index] || gameState.isGameOver) return;
-
-    const newBoard = [...board];
-    newBoard[index] = currentPlayer;
-    setBoard(newBoard);
-
-    // Only toggle player if game is not over after this move
-    // The gameState will be recalculated automatically via useMemo
-    const nextPlayer = currentPlayer === "X" ? "O" : "X";
-    setCurrentPlayer(nextPlayer);
+    console.log("[GameBoard] square click", {
+      index,
+      currentCell: board[index],
+      isGameOver,
+      isGameActive,
+    });
+    if (!isGameActive || isGameOver || board[index] !== null) return;
+    socket.emit("playerMove", { code: roomId, position: index });
   };
 
-  // Reset game
+  // Start / play again (server-authoritative)
   const resetGame = () => {
-    setBoard(Array(9).fill(null));
-    setCurrentPlayer("X");
+    socket.emit("playAgain", { code: roomId });
+  };
+
+  const startGame = () => {
+    socket.emit("startGame", { code: roomId });
+  };
+
+  const leaveRoom = () => {
+    socket.emit("leaveRoom", { code: roomId });
+    if (typeof window !== "undefined") window.history.back();
   };
 
   // Render square
   const renderSquare = (index: number) => {
-    const isDisabled = gameState.isGameOver || board[index] !== null;
+    const outOfTurn = mySymbol !== null && nextTurn !== mySymbol;
+    const isDisabled =
+      isGameOver || !isGameActive || outOfTurn || board[index] !== null;
 
     return (
       <button
         key={index}
-        className={`w-16 h-16 sm:w-20 sm:h-20 border-2 border-gray-400 text-2xl sm:text-3xl font-bold
-          hover:bg-gray-100 transition-colors duration-200
-          ${board[index] === "X" ? "text-blue-600" : "text-red-600"}
-          ${gameState.isGameOver ? "cursor-not-allowed" : "cursor-pointer"}
+        className={`w-20 h-20 sm:w-24 sm:h-24 rounded-xl border border-cyan-400/40
+          bg-[#120E2A] text-3xl sm:text-4xl font-extrabold tracking-widest
+          hover:bg-[#141037] transition-colors duration-200
+          shadow-[inset_0_0_12px_rgba(34,211,238,0.2),0_0_14px_rgba(34,211,238,0.2)]
+          ${
+            board[index] === "X"
+              ? "text-cyan-300 drop-shadow-[0_0_12px_rgba(34,211,238,0.6)]"
+              : "text-fuchsia-300 drop-shadow-[0_0_12px_rgba(217,70,239,0.6)]"
+          }
+          ${isGameOver ? "cursor-not-allowed opacity-80" : "cursor-pointer"}
         `}
         onClick={() => handleSquareClick(index)}
         disabled={Boolean(isDisabled)}
@@ -133,60 +188,87 @@ export default function GameBoard({ roomId, currentUser }: GameBoardProps) {
   };
 
   return (
-    <div className="flex flex-col items-center p-4 sm:p-6 bg-white rounded-lg shadow-lg max-w-sm mx-auto">
-      <h2 className="text-xl sm:text-2xl font-bold mb-4 text-gray-800">
-        Tic Tac Toe
-      </h2>
+    <div className="relative w-full max-w-xl mx-auto rounded-3xl p-6 sm:p-8 bg-[#0F0A23]/60 border border-cyan-400/30 shadow-[0_0_25px_rgba(34,211,238,0.25)]">
+      {/* Title */}
 
       {/* Game Status */}
-      <div className="mb-4 text-center">
+      <div className="mb-5 text-center">
         <p
-          className={`text-base sm:text-lg font-semibold ${
-            gameState.winner ? "text-green-600" : "text-gray-700"
+          className={`text-sm sm:text-base font-semibold ${
+            winnerSymbol ? "text-emerald-300" : "text-cyan-200/80"
           }`}
         >
-          {gameState.status}
+          {!isGameActive
+            ? "Waiting for game to start..."
+            : isGameOver
+            ? isDraw
+              ? "It's a draw!"
+              : winnerSymbol
+              ? `Player ${winnerSymbol}${
+                  winnerName ? ` (${winnerName})` : ""
+                } wins!`
+              : "Game Over!"
+            : mySymbol !== null && nextTurn === mySymbol
+            ? `Your turn (${mySymbol})`
+            : `It's ${nextTurn}'s turn`}
         </p>
-        <p className="text-xs sm:text-sm text-gray-500 mt-1">Room: {roomId}</p>
+        <p className="text-[11px] sm:text-xs text-purple-200/60 mt-1">
+          Room: {roomId}
+        </p>
       </div>
 
       {/* Game Board */}
-      <div className="grid grid-cols-3 gap-1 mb-4 sm:mb-6 bg-gray-300 p-2 rounded-lg">
-        {Array(9)
-          .fill(null)
-          .map((_, index) => renderSquare(index))}
+      <div className="relative mx-auto mb-6 sm:mb-8 p-3 rounded-2xl bg-[#120E2A] border border-cyan-400/30 shadow-[0_0_30px_rgba(34,211,238,0.25)]">
+        <div className="grid grid-cols-3 gap-2">
+          {Array(9)
+            .fill(null)
+            .map((_, index) => renderSquare(index))}
+        </div>
       </div>
 
       {/* Game Controls */}
-      <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 w-full">
+      <div className="flex flex-col sm:flex-row gap-3 w-full justify-center">
+        {!isGameActive && !isGameOver && (
+          <button
+            onClick={startGame}
+            className="px-5 sm:px-6 py-2 rounded-xl text-white font-semibold bg-emerald-500/20 border border-emerald-400/40 hover:bg-emerald-500/30 shadow-[0_0_16px_rgba(16,185,129,0.35)] transition-colors"
+          >
+            START GAME
+          </button>
+        )}
+        {isGameOver && (
+          <button
+            onClick={resetGame}
+            className="px-5 sm:px-6 py-2 rounded-xl text-white font-semibold bg-cyan-500/20 border border-cyan-400/40 hover:bg-cyan-500/30 shadow-[0_0_16px_rgba(34,211,238,0.35)] transition-colors"
+          >
+            PLAY AGAIN
+          </button>
+        )}
         <button
-          onClick={resetGame}
-          className="px-4 sm:px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600
-            transition-colors duration-200 font-medium text-sm sm:text-base"
+          type="button"
+          onClick={leaveRoom}
+          className="px-5 sm:px-6 py-2 rounded-xl text-white font-semibold bg-rose-500/20 border border-rose-400/40 hover:bg-rose-500/30 shadow-[0_0_16px_rgba(244,63,94,0.35)] transition-colors"
         >
-          New Game
+          LEAVE
         </button>
 
-        {gameState.isGameOver && (
-          <div
-            className="flex items-center justify-center px-4 py-2 bg-green-100 text-green-800
-            rounded-lg border border-green-300 text-sm sm:text-base"
-          >
+        {isGameOver && (
+          <div className="flex items-center justify-center px-4 py-2 rounded-xl text-emerald-300 bg-emerald-500/10 border border-emerald-400/40">
             Game Over!
           </div>
         )}
       </div>
 
       {/* Game Stats */}
-      <div className="mt-4 text-center text-xs sm:text-sm text-gray-600">
+      <div className="mt-5 text-center text-xs sm:text-sm text-purple-200/80">
         <p>
           Current Player:{" "}
           <span
-            className={`font-bold ${
-              currentPlayer === "X" ? "text-blue-600" : "text-red-600"
+            className={`font-extrabold drop-shadow-[0_0_8px_rgba(59,130,246,0.55)] ${
+              nextTurn === "X" ? "text-cyan-300" : "text-fuchsia-300"
             }`}
           >
-            {currentPlayer}
+            {nextTurn}
           </span>
         </p>
       </div>
