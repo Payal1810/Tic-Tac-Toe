@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { socket } from "@/lib/socketClient";
 
 type Player = "X" | "O" | null;
@@ -11,6 +11,16 @@ interface GameBoardProps {
   currentUser: string;
 }
 
+// Helper to get user data once
+const getUserData = () => {
+  try {
+    const raw = localStorage.getItem("user");
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
 export default function GameBoard({ roomId, currentUser }: GameBoardProps) {
   const [board, setBoard] = useState<Board>(Array(9).fill(null));
   const [nextTurn, setNextTurn] = useState<"X" | "O">("X");
@@ -20,29 +30,47 @@ export default function GameBoard({ roomId, currentUser }: GameBoardProps) {
   const [isDraw, setIsDraw] = useState(false);
   const [isGameActive, setIsGameActive] = useState(false);
   const [mySymbol, setMySymbol] = useState<"X" | "O" | null>(null);
+  const [playersCount, setPlayersCount] = useState(0);
+  const [isWaitingForPlayer, setIsWaitingForPlayer] = useState(true);
+  const [showCopiedMessage, setShowCopiedMessage] = useState(false);
 
   // Note: currentUser will be used for multiplayer features in the future
   console.log("Game room:", roomId, "user:", currentUser);
 
-  // Subscribe to server events
+  // Subscribe to server events - DO NOT join/authenticate here, parent already did
   useEffect(() => {
-    // Authenticate socket with stored user (required by server)
-    try {
-      const raw = localStorage.getItem("user");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        console.log("[GameBoard] emit authenticate-user", {
-          user: { id: parsed?.id, username: parsed?.username },
-        });
-        socket.emit("authenticate-user", { user: parsed });
-      }
-    } catch {
-      // ignore auth hydrate failures
-    }
+    const userData = getUserData();
+    if (!userData) return;
 
-    // Ensure we are in the room
-    console.log("[GameBoard] emit joinRoom", { code: roomId });
-    socket.emit("joinRoom", { code: roomId });
+    // Handle when room is joined - track player count
+    const handleRoomJoined = (payload: {
+      room: { id: number; code: string; status: string };
+      players: Array<{ id: number; username: string; symbol: string }>;
+      you: { id: number; username: string; symbol: string };
+    }) => {
+      console.log("[GameBoard] roomJoined", payload);
+      setPlayersCount(payload.players.length);
+      setIsWaitingForPlayer(payload.players.length < 2);
+      setMySymbol(payload.you.symbol as "X" | "O");
+    };
+
+    // Handle when 2 players are ready
+    const handleRoomReady = (payload: {
+      room: { id: number; code: string };
+      players: Array<{ id: number; username: string; symbol: string }>;
+    }) => {
+      console.log("[GameBoard] roomReady - 2 players present!", payload);
+      setPlayersCount(payload.players.length);
+      setIsWaitingForPlayer(false);
+    };
+
+    // Handle when another user joins
+    const handleUserJoined = (payload: {
+      player: { id: number; username: string; symbol: string };
+    }) => {
+      console.log("[GameBoard] userJoined", payload);
+      setPlayersCount((prev) => prev + 1);
+    };
 
     const handleStarted = (payload: {
       game: { id: number; roomId: number; started_at: string };
@@ -58,17 +86,14 @@ export default function GameBoard({ roomId, currentUser }: GameBoardProps) {
       setWinnerName(null);
       setIsDraw(false);
       setIsGameActive(true);
-      try {
-        const raw = localStorage.getItem("user");
-        const me = raw ? JSON.parse(raw) : null;
-        const mine = payload.players.find((p) =>
-          me?.id ? p.id === me.id : p.username === me?.username
-        );
-        setMySymbol(mine?.symbol ?? null);
-        // winner name comes from server; no need to store my own name here
-      } catch {
-        // ignore parse errors
-      }
+      setIsWaitingForPlayer(false);
+      setPlayersCount(payload.players.length);
+
+      // Find player's symbol using userData from closure
+      const mine = payload.players.find((p) =>
+        userData?.id ? p.id === userData.id : p.username === userData?.username
+      );
+      setMySymbol(mine?.symbol ?? null);
     };
 
     const handleUpdate = (payload: { board: Board; nextTurn: "X" | "O" }) => {
@@ -117,6 +142,15 @@ export default function GameBoard({ roomId, currentUser }: GameBoardProps) {
       // For now, no-op to keep UI simple
     };
 
+    // Only listen to game events - the parent component already authenticated and joined
+    console.log(
+      "[GameBoard] Setting up game event listeners for room:",
+      roomId
+    );
+
+    socket.on("roomJoined", handleRoomJoined);
+    socket.on("roomReady", handleRoomReady);
+    socket.on("userJoined", handleUserJoined);
     socket.on("gameStarted", handleStarted);
     socket.on("gameUpdate", handleUpdate);
     socket.on("gameOver", handleOver);
@@ -124,6 +158,9 @@ export default function GameBoard({ roomId, currentUser }: GameBoardProps) {
     socket.on("invalidMove", handleInvalid);
 
     return () => {
+      socket.off("roomJoined", handleRoomJoined);
+      socket.off("roomReady", handleRoomReady);
+      socket.off("userJoined", handleUserJoined);
       socket.off("gameStarted", handleStarted);
       socket.off("gameUpdate", handleUpdate);
       socket.off("gameOver", handleOver);
@@ -132,42 +169,46 @@ export default function GameBoard({ roomId, currentUser }: GameBoardProps) {
     };
   }, [roomId]);
 
-  // Handle square click: emit intent; server updates arrive via events
-  const handleSquareClick = (index: number) => {
-    console.log("[GameBoard] square click", {
-      index,
-      currentCell: board[index],
-      isGameOver,
-      isGameActive,
-    });
-    if (!isGameActive || isGameOver || board[index] !== null) return;
-    socket.emit("playerMove", { code: roomId, position: index });
-  };
+  // Memoize callbacks to prevent re-renders
+  const handleSquareClick = useCallback(
+    (index: number) => {
+      console.log("[GameBoard] square click", {
+        index,
+        currentCell: board[index],
+        isGameOver,
+        isGameActive,
+      });
+      if (!isGameActive || isGameOver || board[index] !== null) return;
+      socket.emit("playerMove", { code: roomId, position: index });
+    },
+    [board, isGameOver, isGameActive, roomId]
+  );
 
   // Start / play again (server-authoritative)
-  const resetGame = () => {
+  const resetGame = useCallback(() => {
     socket.emit("playAgain", { code: roomId });
-  };
+  }, [roomId]);
 
-  const startGame = () => {
+  const startGame = useCallback(() => {
     socket.emit("startGame", { code: roomId });
-  };
+  }, [roomId]);
 
-  const leaveRoom = () => {
+  const leaveRoom = useCallback(() => {
     socket.emit("leaveRoom", { code: roomId });
     if (typeof window !== "undefined") window.history.back();
-  };
+  }, [roomId]);
 
-  // Render square
-  const renderSquare = (index: number) => {
-    const outOfTurn = mySymbol !== null && nextTurn !== mySymbol;
-    const isDisabled =
-      isGameOver || !isGameActive || outOfTurn || board[index] !== null;
+  // Memoize renderSquare to prevent unnecessary re-renders
+  const renderSquare = useCallback(
+    (index: number) => {
+      const outOfTurn = mySymbol !== null && nextTurn !== mySymbol;
+      const isDisabled =
+        isGameOver || !isGameActive || outOfTurn || board[index] !== null;
 
-    return (
-      <button
-        key={index}
-        className={`w-20 h-20 sm:w-24 sm:h-24 rounded-xl border border-cyan-400/40
+      return (
+        <button
+          key={index}
+          className={`w-20 h-20 sm:w-24 sm:h-24 rounded-xl border border-cyan-400/40
           bg-[#120E2A] text-3xl sm:text-4xl font-extrabold tracking-widest
           hover:bg-[#141037] transition-colors duration-200
           shadow-[inset_0_0_12px_rgba(34,211,238,0.2),0_0_14px_rgba(34,211,238,0.2)]
@@ -178,14 +219,16 @@ export default function GameBoard({ roomId, currentUser }: GameBoardProps) {
           }
           ${isGameOver ? "cursor-not-allowed opacity-80" : "cursor-pointer"}
         `}
-        onClick={() => handleSquareClick(index)}
-        disabled={Boolean(isDisabled)}
-        type="button"
-      >
-        {board[index]}
-      </button>
-    );
-  };
+          onClick={() => handleSquareClick(index)}
+          disabled={Boolean(isDisabled)}
+          type="button"
+        >
+          {board[index]}
+        </button>
+      );
+    },
+    [board, mySymbol, nextTurn, isGameOver, isGameActive, handleSquareClick]
+  );
 
   return (
     <div className="relative w-full max-w-xl mx-auto rounded-3xl p-6 sm:p-8 bg-[#0F0A23]/60 border border-cyan-400/30 shadow-[0_0_25px_rgba(34,211,238,0.25)]">
@@ -193,28 +236,62 @@ export default function GameBoard({ roomId, currentUser }: GameBoardProps) {
 
       {/* Game Status */}
       <div className="mb-5 text-center">
-        <p
-          className={`text-sm sm:text-base font-semibold ${
-            winnerSymbol ? "text-emerald-300" : "text-cyan-200/80"
-          }`}
-        >
-          {!isGameActive
-            ? "Waiting for game to start..."
-            : isGameOver
-            ? isDraw
-              ? "It's a draw!"
-              : winnerSymbol
-              ? `Player ${winnerSymbol}${
-                  winnerName ? ` (${winnerName})` : ""
-                } wins!`
-              : "Game Over!"
-            : mySymbol !== null && nextTurn === mySymbol
-            ? `Your turn (${mySymbol})`
-            : `It's ${nextTurn}'s turn`}
-        </p>
-        <p className="text-[11px] sm:text-xs text-purple-200/60 mt-1">
-          Room: {roomId}
-        </p>
+        {isWaitingForPlayer && !isGameActive ? (
+          <div className="space-y-3">
+            <div className="inline-block animate-pulse">
+              <p className="text-base sm:text-lg font-bold text-yellow-300 mb-2">
+                 Waiting for Player 2...
+              </p>
+            </div>
+            <p className="text-xs sm:text-sm text-purple-200/80">
+              Share this room code with a friend:
+            </p>
+            <div className="inline-flex items-center gap-2 px-4 py-2 bg-purple-900/40 border border-purple-400/40 rounded-lg">
+              <span className="text-lg sm:text-xl font-mono font-bold text-purple-200 tracking-wider">
+                {roomId}
+              </span>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(roomId);
+                  setShowCopiedMessage(true);
+                  setTimeout(() => setShowCopiedMessage(false), 2000);
+                }}
+                className="px-2 py-1 text-xs bg-purple-500/20 hover:bg-purple-500/30 border border-purple-400/40 rounded transition-colors"
+                title="Copy room code"
+              >
+                {showCopiedMessage ? "✓ Copied!" : "Copy"}
+              </button>
+            </div>
+            <p className="text-xs text-purple-300/60 mt-2">
+              Players in room: {playersCount}/2
+            </p>
+          </div>
+        ) : (
+          <>
+            <p
+              className={`text-sm sm:text-base font-semibold ${
+                winnerSymbol ? "text-emerald-300" : "text-cyan-200/80"
+              }`}
+            >
+              {!isGameActive
+                ? "Waiting for game to start..."
+                : isGameOver
+                ? isDraw
+                  ? "It's a draw!"
+                  : winnerSymbol
+                  ? `Player ${winnerSymbol}${
+                      winnerName ? ` (${winnerName})` : ""
+                    } wins!`
+                  : "Game Over!"
+                : mySymbol !== null && nextTurn === mySymbol
+                ? `Your turn (${mySymbol})`
+                : `It's ${nextTurn}'s turn`}
+            </p>
+            <p className="text-[11px] sm:text-xs text-purple-200/60 mt-1">
+              Room: {roomId}
+            </p>
+          </>
+        )}
       </div>
 
       {/* Game Board */}

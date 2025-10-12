@@ -9,17 +9,17 @@ const port = parseInt(process.env.PORT || "3000", 10);
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
-    // In-memory state per room: gameId, board, nextTurn, boardSize, players (active with symbols)
-    const roomState = new Map<
-      string,
-      {
-        gameId: number;
-        board: Array<"X" | "O" | null>;
-        nextTurn: "X" | "O";
-        boardSize: number;
-        players: Array<{ id: number; username: string; symbol: "X" | "O" }>;
-      }
-    >();
+// In-memory state per room: gameId, board, nextTurn, boardSize, players (active with symbols)
+const roomState = new Map<
+  string,
+  {
+    gameId: number;
+    board: Array<"X" | "O" | null>;
+    nextTurn: "X" | "O";
+    boardSize: number;
+    players: Array<{ id: number; username: string; symbol: "X" | "O" }>;
+  }
+>();
 
 app.prepare().then(() => {
   const httpServer = createServer(handle);
@@ -466,6 +466,38 @@ app.prepare().then(() => {
       }
     });
 
+    // Helper function to create/restart a game (reduces duplication)
+    const initializeGame = async (
+      code: string,
+      room: { id: number; code: string },
+      size?: number
+    ) => {
+      const players = await gameService.getRoomPlayersByRoomId(room.id);
+      if (players.length < 2) {
+        socket.emit("roomError", {
+          code: "NEED_TWO",
+          message: "Need two players to start",
+        });
+        return false;
+      }
+      const game = await gameService.createGame(room.id);
+      const boardSize =
+        typeof size === "number" && size >= 3 && size <= 6 ? size : 3;
+      const board: Array<"X" | "O" | null> = Array(boardSize * boardSize).fill(
+        null
+      );
+      const nextTurn: "X" | "O" = "X";
+      const activePlayers = deriveActivePlayersWithSymbols(code);
+      roomState.set(code, {
+        gameId: game.id,
+        board,
+        nextTurn,
+        boardSize,
+        players: activePlayers,
+      });
+      return { game, board, nextTurn, activePlayers, boardSize };
+    };
+
     // ---------------- Game flow events ----------------
     socket.on(
       "startGame",
@@ -488,35 +520,19 @@ app.prepare().then(() => {
             });
             return;
           }
-          const players = await gameService.getRoomPlayersByRoomId(room.id);
-          if (players.length < 2) {
-            socket.emit("roomError", {
-              code: "NEED_TWO",
-              message: "Need two players to start",
-            });
-            return;
-          }
-          const game = await gameService.createGame(room.id);
-          const boardSize =
-            typeof size === "number" && size >= 3 && size <= 6 ? size : 3;
-          const board: Array<"X" | "O" | null> = Array(
-            boardSize * boardSize
-          ).fill(null);
-          const nextTurn: "X" | "O" = "X";
-          const activePlayers = deriveActivePlayersWithSymbols(normalized);
-          roomState.set(normalized, {
-            gameId: game.id,
-            board,
-            nextTurn,
-            boardSize,
-            players: activePlayers,
-          });
+          const result = await initializeGame(normalized, room, size);
+          if (!result) return;
+
           io.to(normalized).emit("gameStarted", {
-            game: { id: game.id, roomId: room.id, started_at: game.started_at },
-            board,
-            nextTurn,
-            players: activePlayers,
-            boardSize,
+            game: {
+              id: result.game.id,
+              roomId: room.id,
+              started_at: result.game.started_at,
+            },
+            board: result.board,
+            nextTurn: result.nextTurn,
+            players: result.activePlayers,
+            boardSize: result.boardSize,
           });
         } catch (error) {
           console.error("Error starting game:", error);
@@ -646,34 +662,14 @@ app.prepare().then(() => {
             });
             return;
           }
-          const players = await gameService.getRoomPlayersByRoomId(room.id);
-          if (players.length < 2) {
-            socket.emit("roomError", {
-              code: "NEED_TWO",
-              message: "Need two players to restart",
-            });
-            return;
-          }
-          const game = await gameService.createGame(room.id);
-          const boardSize =
-            typeof size === "number" && size >= 3 && size <= 6 ? size : 3;
-          const board: Array<"X" | "O" | null> = Array(
-            boardSize * boardSize
-          ).fill(null);
-          const nextTurn: "X" | "O" = "X";
-          const activePlayers = deriveActivePlayersWithSymbols(normalized);
-          roomState.set(normalized, {
-            gameId: game.id,
-            board,
-            nextTurn,
-            boardSize,
-            players: activePlayers,
-          });
+          const result = await initializeGame(normalized, room, size);
+          if (!result) return;
+
           io.to(normalized).emit("gameRestarted", {
-            game: { id: game.id, roomId: room.id },
-            board,
-            nextTurn,
-            boardSize,
+            game: { id: result.game.id, roomId: room.id },
+            board: result.board,
+            nextTurn: result.nextTurn,
+            boardSize: result.boardSize,
           });
         } catch (error) {
           console.error("Error restarting game:", error);
@@ -727,6 +723,6 @@ app.prepare().then(() => {
   });
 
   httpServer.listen(port, () => {
-    console.log(`Server running on http://${hostname}:${port}`);
+    console.log(`Serverg running on http://${hostname}:${port}`);
   });
 });

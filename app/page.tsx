@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { socket } from "@/lib/socketClient";
@@ -9,6 +9,14 @@ import {
   validateEmail,
   validatePassword,
 } from "@/lib/validation";
+
+interface User {
+  id: number;
+  username: string;
+  email: string;
+  coins: number;
+  created_at: string;
+}
 
 export default function Home() {
   const [isLogin, setIsLogin] = useState(true);
@@ -23,12 +31,24 @@ export default function Home() {
   const router = useRouter();
   const { isAuthenticated, login } = useAuth();
 
+  // Use ref to store timeout for proper cleanup
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   // Redirect if already authenticated
   useEffect(() => {
     if (isAuthenticated) {
       router.push("/room");
     }
   }, [isAuthenticated, router]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,14 +80,22 @@ export default function Home() {
       return;
     }
 
+    // Clear any existing timeout
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+
     if (isLogin) {
       // Login flow
-      socket.emit("login", {
-        username: formData.username,
-        password: formData.password,
-      });
-
-      socket.once("login_result", (result) => {
+      const handleLoginResult = (result: {
+        success: boolean;
+        user?: User;
+        error?: string;
+      }) => {
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
         if (result.success && result.user) {
           login(result.user);
           router.push("/room");
@@ -75,16 +103,31 @@ export default function Home() {
           setError(result.error || "Login failed");
         }
         setLoading(false);
-      });
-    } else {
-      // Register flow
-      socket.emit("register", {
+        socket.off("login_result", handleLoginResult);
+      };
+
+      socket.on("login_result", handleLoginResult);
+      socket.emit("login", {
         username: formData.username,
-        email: formData.email,
         password: formData.password,
       });
 
-      socket.once("register_result", (result) => {
+      // Timeout handling
+      timeoutRef.current = setTimeout(() => {
+        socket.off("login_result", handleLoginResult);
+        setLoading(false);
+        setError("Request timeout. Please try again.");
+      }, 10000);
+    } else {
+      // Register flow
+      const handleRegisterResult = (result: {
+        success: boolean;
+        error?: string;
+      }) => {
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
         if (result.success) {
           setError("Registration successful! Please login.");
           setIsLogin(true);
@@ -93,16 +136,23 @@ export default function Home() {
           setError(result.error || "Registration failed");
         }
         setLoading(false);
-      });
-    }
+        socket.off("register_result", handleRegisterResult);
+      };
 
-    // Timeout handling
-    setTimeout(() => {
-      if (loading) {
+      socket.on("register_result", handleRegisterResult);
+      socket.emit("register", {
+        username: formData.username,
+        email: formData.email,
+        password: formData.password,
+      });
+
+      // Timeout handling
+      timeoutRef.current = setTimeout(() => {
+        socket.off("register_result", handleRegisterResult);
         setLoading(false);
         setError("Request timeout. Please try again.");
-      }
-    }, 10000);
+      }, 10000);
+    }
   };
 
   const handleInputChange =
@@ -149,31 +199,31 @@ export default function Home() {
                 placeholder="Username"
                 value={formData.username}
                 onChange={handleInputChange("username")}
-                disabled={loading}            
+                disabled={loading}
               />
             </div>
 
             {!isLogin && (
               <div>
                 <input
-                  type="email"               
+                  type="email"
                   className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                   placeholder="Email address"
                   value={formData.email}
                   onChange={handleInputChange("email")}
-                  disabled={loading}              
+                  disabled={loading}
                 />
               </div>
             )}
 
             <div>
               <input
-                type="password"             
+                type="password"
                 className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                 placeholder="Password"
                 value={formData.password}
                 onChange={handleInputChange("password")}
-                disabled={loading}            
+                disabled={loading}
               />
             </div>
           </div>

@@ -28,23 +28,9 @@ export default function RoomPage() {
     }
   }, [authLoading, isAuthenticated, router]);
 
-  // Join room when authenticated and socket is ready
+  // Combined effect: Join room and setup socket listeners
   useEffect(() => {
     if (!user || isJoined) return;
-
-    // Authenticate socket with user data
-    socket.emit("authenticate-user", { user });
-
-    // Join the room
-    socket.emit("join-room", { room: roomId, user });
-    setIsJoined(true);
-
-    console.log(`Joining room ${roomId} as ${user.username}`);
-  }, [user, roomId, isJoined]);
-
-  // Set up socket event listeners
-  useEffect(() => {
-    if (!user) return;
 
     // Handle incoming messages
     const handleMessage = (data: {
@@ -82,9 +68,21 @@ export default function RoomPage() {
     };
 
     // Handle errors
-    const handleRoomError = (error: { error: string }) => {
+    const handleRoomError = (error: {
+      error?: string;
+      message?: string;
+      code?: string;
+    }) => {
+      const errorMsg = error.message || error.error || "Room error occurred";
       console.error("Room error:", error);
-      setConnectionError(error.error);
+      setConnectionError(errorMsg);
+
+      // If it's a room full or room not found error, redirect back after showing message
+      if (error.code === "ROOM_FULL" || error.code === "ROOM_NOT_FOUND") {
+        setTimeout(() => {
+          router.push("/room");
+        }, 3000);
+      }
     };
 
     const handleMessageError = (error: { error: string }) => {
@@ -95,12 +93,19 @@ export default function RoomPage() {
       setTimeout(() => setConnectionError(null), 3000);
     };
 
-    // Register event listeners
+    // Register event listeners first
     socket.on("message", handleMessage);
     socket.on("user_joined", handleUserJoined);
     socket.on("chat_history", handleChatHistory);
     socket.on("room_error", handleRoomError);
     socket.on("message_error", handleMessageError);
+
+    // Then authenticate and join
+    socket.emit("authenticate-user", { user });
+    socket.emit("join-room", { room: roomId, user });
+    setIsJoined(true);
+
+    console.log(`Joining room ${roomId} as ${user.username}`);
 
     // Cleanup
     return () => {
@@ -110,7 +115,7 @@ export default function RoomPage() {
       socket.off("room_error", handleRoomError);
       socket.off("message_error", handleMessageError);
     };
-  }, [user]);
+  }, [user, roomId, isJoined, router]);
 
   const handleSendMessage = (message: string) => {
     if (!user || !message.trim()) return;
@@ -174,7 +179,6 @@ export default function RoomPage() {
           </h1>
         </div>
         <div className="flex items-center gap-4">
-
           <button
             onClick={handleLogout}
             className="px-4 py-2 text-sm rounded-md border border-fuchsia-500/40 text-fuchsia-300 hover:text-white bg-fuchsia-500/10 hover:bg-fuchsia-500/20 transition-colors shadow-[0_0_10px_rgba(217,70,239,0.35)]"
