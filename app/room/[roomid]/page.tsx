@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import ChatForm from "@/components/Chat/ChatForm";
 import ChatMessage from "@/components/Chat/ChatMessage";
@@ -19,6 +19,9 @@ export default function RoomPage() {
   const [isJoined, setIsJoined] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
 
+  // Use ref to track if we've already set up listeners (prevents cleanup/re-setup)
+  const hasSetupListeners = useRef(false);
+
   const { user, isAuthenticated, isLoading: authLoading, logout } = useAuth();
 
   // Redirect if not authenticated
@@ -30,7 +33,7 @@ export default function RoomPage() {
 
   // Combined effect: Join room and setup socket listeners
   useEffect(() => {
-    if (!user || isJoined) return;
+    if (!user || hasSetupListeners.current) return;
 
     // Handle incoming messages
     const handleMessage = (data: {
@@ -38,8 +41,12 @@ export default function RoomPage() {
       message: string;
       timestamp: string;
     }) => {
-      console.log("Received message:", data);
-      setMessages((prev) => [...prev, data]);
+      console.log("[Chat] Message received from server:", data);
+      setMessages((prev) => {
+        console.log("[Chat] Current messages:", prev.length);
+        console.log("[Chat] Adding new message, new total:", prev.length + 1);
+        return [...prev, data];
+      });
     };
 
     // Handle user joined events
@@ -94,33 +101,57 @@ export default function RoomPage() {
     };
 
     // Register event listeners first
+    console.log("[Chat] Registering socket listeners for room:", roomId);
+    console.log("[Chat] Socket connected:", socket.connected);
+    console.log("[Chat] Socket ID:", socket.id);
+
+    // Test listener to verify socket is working
+    socket.onAny((eventName, ...args) => {
+      console.log("[Chat] Received socket event:", eventName, args);
+    });
+
     socket.on("message", handleMessage);
     socket.on("user_joined", handleUserJoined);
     socket.on("chat_history", handleChatHistory);
     socket.on("room_error", handleRoomError);
     socket.on("message_error", handleMessageError);
 
+    console.log("[Chat] Socket listeners registered");
+    console.log(
+      "[Chat] Current listeners for 'message':",
+      socket.listeners("message").length
+    );
+
     // Then authenticate and join
+    console.log("[Chat] Emitting authenticate-user and join-room");
     socket.emit("authenticate-user", { user });
     socket.emit("join-room", { room: roomId, user });
+    hasSetupListeners.current = true;
     setIsJoined(true);
 
-    console.log(`Joining room ${roomId} as ${user.username}`);
+    console.log(`[Chat] Joining room ${roomId} as ${user.username}`);
 
     // Cleanup
     return () => {
+      console.log("[Chat] Cleaning up socket listeners");
+      socket.offAny();
       socket.off("message", handleMessage);
       socket.off("user_joined", handleUserJoined);
       socket.off("chat_history", handleChatHistory);
       socket.off("room_error", handleRoomError);
       socket.off("message_error", handleMessageError);
     };
-  }, [user, roomId, isJoined, router]);
+  }, [user, roomId, router]);
 
   const handleSendMessage = (message: string) => {
     if (!user || !message.trim()) return;
 
-    console.log("Sending message:", message);
+    console.log("[Chat] Sending message:", {
+      roomId,
+      message,
+      sender: user.username,
+      socketConnected: socket.connected,
+    });
     socket.emit("message", { roomId, message });
   };
 

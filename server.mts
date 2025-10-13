@@ -684,23 +684,57 @@ app.prepare().then(() => {
     // Backward compatibility: message -> sendMessage
     socket.on("message", async (data) => {
       const currentUser = socket.data.user;
+      console.log("[Server] Legacy message event received:", {
+        roomId: data.roomId,
+        message: data.message,
+        sender: currentUser?.username,
+        socketId: socket.id,
+      });
+
       if (!currentUser) {
         socket.emit("message_error", { error: "Please login first" });
         return;
       }
+
+      // Check if socket is in the room
+      const rooms = Array.from(socket.rooms);
+      console.log("[Server] Socket is in rooms:", rooms);
+      console.log("[Server] Trying to emit to room:", data.roomId);
+
       try {
         await gameService.saveChatMessage(
           data.roomId,
           currentUser.id,
           data.message
         );
-        io.to(data.roomId).emit("message", {
+        console.log("[Server] Message saved to DB");
+
+        // Get all sockets in this room
+        const socketsInRoom = await io.in(data.roomId).fetchSockets();
+        console.log(
+          "[Server] Sockets in room:",
+          socketsInRoom.length,
+          "sockets"
+        );
+
+        const messageData = {
           sender: currentUser.username,
           message: data.message,
           timestamp: new Date().toISOString(),
-        });
+        };
+
+        // Emit to the entire room
+        io.in(data.roomId).emit("message", messageData);
+        console.log(
+          "[Server] Message emitted to room via io.in():",
+          data.roomId
+        );
+
+        // Also emit directly to sender to ensure they get it
+        socket.emit("message", messageData);
+        console.log("[Server] Message also emitted directly to sender");
       } catch (error) {
-        console.error("Error handling legacy message:", error);
+        console.error("[Server] Error handling legacy message:", error);
         socket.emit("message_error", { error: "Failed to send message" });
       }
     });
@@ -723,6 +757,6 @@ app.prepare().then(() => {
   });
 
   httpServer.listen(port, () => {
-    console.log(`Serverg running on http://${hostname}:${port}`);
+    console.log(`Server running on http://${hostname}:${port}`);
   });
 });

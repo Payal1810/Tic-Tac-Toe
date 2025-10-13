@@ -240,7 +240,7 @@ export default function GameBoard({ roomId, currentUser }: GameBoardProps) {
           <div className="space-y-3">
             <div className="inline-block animate-pulse">
               <p className="text-base sm:text-lg font-bold text-yellow-300 mb-2">
-                 Waiting for Player 2...
+                Waiting for Player 2...
               </p>
             </div>
             <p className="text-xs sm:text-sm text-purple-200/80">
@@ -259,7 +259,7 @@ export default function GameBoard({ roomId, currentUser }: GameBoardProps) {
                 className="px-2 py-1 text-xs bg-purple-500/20 hover:bg-purple-500/30 border border-purple-400/40 rounded transition-colors"
                 title="Copy room code"
               >
-                {showCopiedMessage ? "✓ Copied!" : "Copy"}
+                {showCopiedMessage ? "Copied!" : "Copy"}
               </button>
             </div>
             <p className="text-xs text-purple-300/60 mt-2">
@@ -270,12 +270,14 @@ export default function GameBoard({ roomId, currentUser }: GameBoardProps) {
           <>
             <p
               className={`text-sm sm:text-base font-semibold ${
-                winnerSymbol ? "text-emerald-300" : "text-cyan-200/80"
+                isGameOver && winnerSymbol
+                  ? "text-emerald-300"
+                  : isGameOver && isDraw
+                  ? "text-yellow-300"
+                  : "text-cyan-200/80"
               }`}
             >
-              {!isGameActive
-                ? "Waiting for game to start..."
-                : isGameOver
+              {isGameOver
                 ? isDraw
                   ? "It's a draw!"
                   : winnerSymbol
@@ -283,6 +285,8 @@ export default function GameBoard({ roomId, currentUser }: GameBoardProps) {
                       winnerName ? ` (${winnerName})` : ""
                     } wins!`
                   : "Game Over!"
+                : !isGameActive
+                ? "Waiting for game to start..."
                 : mySymbol !== null && nextTurn === mySymbol
                 ? `Your turn (${mySymbol})`
                 : `It's ${nextTurn}'s turn`}
@@ -328,12 +332,6 @@ export default function GameBoard({ roomId, currentUser }: GameBoardProps) {
         >
           LEAVE
         </button>
-
-        {isGameOver && (
-          <div className="flex items-center justify-center px-4 py-2 rounded-xl text-emerald-300 bg-emerald-500/10 border border-emerald-400/40">
-            Game Over!
-          </div>
-        )}
       </div>
 
       {/* Game Stats */}

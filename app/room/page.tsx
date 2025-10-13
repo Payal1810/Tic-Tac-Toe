@@ -72,13 +72,13 @@ export default function RoomPage() {
         room: { id: number; code: string; status: string };
         player: { id: number; username: string; symbol: string };
       }) => {
-        console.log("[CreateRoom] :white_check_mark: roomCreated received", payload);
+        console.log("[CreateRoom] roomCreated received", payload);
         cleanup();
         router.push(`/room/${payload.room.code}`);
       };
 
       const onRoomError = (err: { code?: string; message: string }) => {
-        console.warn("[CreateRoom] :x: roomError received", err);
+        console.warn("[CreateRoom] roomError received", err);
         setError(err.message || "Failed to create room");
         cleanup(true);
       };
@@ -103,7 +103,7 @@ export default function RoomPage() {
 
       // Wait for auth acknowledgement before creating
       const onAuthOk = () => {
-        console.log("[CreateRoom] :white_check_mark: auth-ok received, emitting createRoom", {
+        console.log("[CreateRoom] auth-ok received, emitting createRoom", {
           code,
         });
         socket.off("auth-ok", onAuthOk);
@@ -118,7 +118,7 @@ export default function RoomPage() {
       // Fallback if auth-ok already happened - increased to 500ms for better reliability
       authFallbackRef.current = setTimeout(() => {
         console.log(
-          "[CreateRoom] :stopwatch: auth-ok fallback (500ms) -> emit createRoom",
+          "[CreateRoom] auth-ok fallback (500ms) -> emit createRoom",
           {
             code,
           }
@@ -185,13 +185,13 @@ export default function RoomPage() {
         players: Array<{ id: number; username: string; symbol: string }>;
         you: { id: number; username: string; symbol: string };
       }) => {
-        console.log("[JoinPage] :white_check_mark: roomJoined received", payload);
+        console.log("[JoinPage] roomJoined received", payload);
         cleanup();
         router.push(`/room/${payload.room.code}`);
       };
 
       const onRoomError = (err: { code?: string; message: string }) => {
-        console.warn("[JoinPage] :x: roomError received", err);
+        console.warn("[JoinPage] roomError received", err);
         setError(err.message || "Failed to join room");
         cleanup(true);
       };
@@ -216,7 +216,7 @@ export default function RoomPage() {
 
       // Wait for auth acknowledgement before joining to avoid race conditions
       const onAuthOk = () => {
-        console.log("[JoinPage] :white_check_mark: auth-ok received, emitting joinRoom", {
+        console.log("[JoinPage] auth-ok received, emitting joinRoom", {
           code,
         });
         socket.off("auth-ok", onAuthOk);
@@ -230,7 +230,7 @@ export default function RoomPage() {
 
       // If auth-ok never arrives (e.g., already authed), still attempt join after short delay - increased to 500ms
       authFallbackRef.current = setTimeout(() => {
-        console.log("[JoinPage] :stopwatch: auth-ok fallback (500ms) -> emit joinRoom", {
+        console.log("[JoinPage] auth-ok fallback (500ms) -> emit joinRoom", {
           code,
         });
         socket.off("auth-ok", onAuthOk);
